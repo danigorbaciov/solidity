@@ -191,13 +191,17 @@ optional<pair<string_view, SourceLocation>> Parser::parseSrcComment(
 	langutil::SourceLocation const& _commentLocation
 )
 {
-	static regex const argsRegex = regex(
-		R"~~(^(-1|\d+):(-1|\d+):(-1|\d+)(?:\s+|$))~~"  // index and location, e.g.: 1:234:-1
+	static regex const indexRegex = regex(
+		R"~~(^(-1|\d+):(-1|\d+):(-1|\d+)(?:\s+|$))~~",  // index and location, e.g.: 1:234:-1
+		regex_constants::ECMAScript | regex_constants::optimize
+	);
+	static regex const snippetRegex = regex(
 		R"~~(("(?:[^"\\]|\\.)*"?)?)~~",                // optional code snippet, e.g.: "string memory s = \"abc\";..."
 		regex_constants::ECMAScript | regex_constants::optimize
 	);
-	match_results<string_view::const_iterator> match;
-	if (!regex_search(_arguments.cbegin(), _arguments.cend(), match, argsRegex))
+
+	match_results<string_view::const_iterator> indexMatch;
+	if (!regex_search(_arguments.cbegin(), _arguments.cend(), indexMatch, indexRegex))
 	{
 		m_errorReporter.syntaxError(
 			8387_error,
@@ -207,12 +211,16 @@ optional<pair<string_view, SourceLocation>> Parser::parseSrcComment(
 		return nullopt;
 	}
 
-	solAssert(match.size() == 5, "");
-	string_view tail = _arguments.substr(static_cast<size_t>(match.position() + match.length()));
+	solAssert(indexMatch.size() == 4, "");
 
-	if (match[4].matched && (
-		!boost::algorithm::ends_with(match[4].str(), "\"") ||
-		boost::algorithm::ends_with(match[4].str(), "\\\"")
+	match_results<string_view::const_iterator> snippetMatch;
+	regex_search(_arguments.cbegin() + indexMatch.length(), _arguments.cend(), snippetMatch, snippetRegex);
+
+	string_view tail = _arguments.substr(static_cast<size_t>(indexMatch.position() + indexMatch.length() + snippetMatch.length()));
+
+	if (snippetMatch[1].matched && (
+		!boost::algorithm::ends_with(snippetMatch[1].str(), "\"") ||
+		boost::algorithm::ends_with(snippetMatch[1].str(), "\\\"")
 	))
 	{
 		m_errorReporter.syntaxError(
@@ -223,9 +231,9 @@ optional<pair<string_view, SourceLocation>> Parser::parseSrcComment(
 		return {{tail, SourceLocation{}}};
 	}
 
-	optional<int> const sourceIndex = toInt(match[1].str());
-	optional<int> const start = toInt(match[2].str());
-	optional<int> const end = toInt(match[3].str());
+	optional<int> const sourceIndex = toInt(indexMatch[1].str());
+	optional<int> const start = toInt(indexMatch[2].str());
+	optional<int> const end = toInt(indexMatch[3].str());
 
 	if (!sourceIndex.has_value() || !start.has_value() || !end.has_value())
 		m_errorReporter.syntaxError(
